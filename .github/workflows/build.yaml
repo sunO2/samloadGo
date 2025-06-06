@@ -77,7 +77,7 @@ jobs:
           name: Release ${{ steps.get_tag.outputs.tag }}
           draft: false
           prerelease: false
-          files: ./dist/release-binaries-*
+          files: ./dist/release-binaries-*/*
           token: ${{ secrets.GETHUB_TOKEN }}
         env:
           GITHUB_TOKEN: ${{ secrets.GETHUB_TOKEN }}
