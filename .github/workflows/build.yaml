@@ -12,11 +12,9 @@ jobs:
 
     strategy:
       matrix:
-        os: [linux, windows, darwin, android]
+        os: [linux, windows, darwin]
         arch: [amd64, arm64, arm, 386]
         exclude:
-          - os: android
-            arch: 386
           - os: darwin
             arch: arm
           - os: darwin
