@@ -1,0 +1,83 @@
+name: Release Builds
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        os: [linux, windows, darwin, android]
+        arch: [amd64, arm64, arm, 386]
+        exclude:
+          - os: darwin
+            arch: arm
+          - os: darwin
+            arch: 386
+          - os: windows
+            arch: arm
+        include:
+          - os: windows
+            ext: .exe
+          - os: linux
+            ext: ""
+          - os: darwin
+            ext: ""
+          - os: android
+            ext: ""
+    env:
+      CGO_ENABLED: 0
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build
+        run: |
+          export GOOS=${{ matrix.os }}
+          export GOARCH=${{ matrix.arch }}
+          output_name=samloadGo-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}
+          go build -o $output_name main.go
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-binaries
+          path: samloadGo-*
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-binaries
+          path: ./dist
+
+      - name: Get tag
+        id: get_tag
+        run: |
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_tag.outputs.tag }}
+          name: Release ${{ steps.get_tag.outputs.tag }}
+          draft: false
+          prerelease: false
+          files: ./dist/samloadGo-*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GETHUB_TOKEN }}
