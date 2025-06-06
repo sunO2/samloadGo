@@ -28,8 +28,6 @@ jobs:
             ext: ""
           - os: darwin
             ext: ""
-          - os: android
-            ext: ""
     env:
       CGO_ENABLED: 0
 
