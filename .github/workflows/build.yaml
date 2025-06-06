@@ -78,5 +78,6 @@ jobs:
           draft: false
           prerelease: false
           files: ./dist/release-binaries-*
+          token: ${{ secrets.GETHUB_TOKEN }}
         env:
           GITHUB_TOKEN: ${{ secrets.GETHUB_TOKEN }}
