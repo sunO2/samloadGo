@@ -15,6 +15,8 @@ jobs:
         os: [linux, windows, darwin, android]
         arch: [amd64, arm64, arm, 386]
         exclude:
+          - os: android
+            arch: 386
           - os: darwin
             arch: arm
           - os: darwin
