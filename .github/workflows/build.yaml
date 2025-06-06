@@ -68,7 +68,7 @@ jobs:
         run: |
           echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
       - name: List dist contents
-        run: ls -l ./dist
+        run: ls -l ./dist/release-binaries-*
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
