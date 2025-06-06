@@ -27,31 +27,127 @@ func main() {
 
 	flag.Parse()
 
-	if *checkVersion {
-		if *model == "" || *region == "" {
-			fmt.Println("Error: --model and --region are required for checking version.")
+	// Check for required parameters in command-line mode, and prompt if missing
+	// These values will also be used as defaults for interactive mode
+	if *model == "" {
+		fmt.Print("请输入设备型号 (例如: SM-G998U): ")
+		fmt.Scanln(model)
+		if *model == "" {
+			fmt.Println("错误: 设备型号是必需的。")
+			os.Exit(1)
+		}
+	}
+	if *region == "" {
+		fmt.Print("请输入设备地区 (例如: XAA): ")
+		fmt.Scanln(region)
+		if *region == "" {
+			fmt.Println("错误: 设备地区是必需的。")
+			os.Exit(1)
+		}
+	}
+
+	if *imeiSerial == "" {
+		fmt.Print("请输设备imei: ")
+		fmt.Scanln(imeiSerial)
+		if *imeiSerial == "" {
+			fmt.Println("错误: 设备imei是必需的。")
+			os.Exit(1)
+		}
+	}
+
+	// imeiSerial is only required for download and decrypt operations
+	if (*downloadFirmware || *decryptFirmware) && *imeiSerial == "" {
+		fmt.Print("请输入设备IMEI或序列号 (多个请用分号或换行符分隔): ")
+		fmt.Scanln(imeiSerial)
+		if *imeiSerial == "" {
+			fmt.Println("错误: 设备IMEI或序列号是必需的。")
+			os.Exit(1)
+		}
+	}
+
+	// Initialize interactive variables with command-line flag values if provided
+	interactiveModel := *model
+	interactiveRegion := *region
+	interactiveImeiSerial := *imeiSerial
+
+	// Check if any action flags were provided. If not, enter interactive mode.
+	if !*checkVersion && !*downloadFirmware && !*decryptFirmware {
+		for {
+			var choice string
+			fmt.Println("\n请输入下面代码执行操作:")
+			fmt.Println("A - 查询最新固件版本")
+			fmt.Println("B - 下载固件")
+			fmt.Println("C - 解码固件")
+			fmt.Println("!q - 退出")
+			fmt.Print("请输入您的选择 (A/B/C/!q): ")
+			fmt.Scanln(&choice)
+
+			switch choice {
+			case "A", "a":
+				// Model and Region are already prompted and validated above
+				checkLatestVersion(interactiveModel, interactiveRegion)
+			case "B", "b":
+				var interactiveFwVersion, interactiveOutputFile string
+				// Model, Region, IMEI/Serial are already prompted and validated above
+				fmt.Print("请输入固件版本 (例如: G998USQU4AUF5/G998UOYN4AUF5/G998USQU4AUF5/G998USQU4AUF5): ")
+				fmt.Scanln(&interactiveFwVersion)
+				fmt.Print("请输入输出文件路径 (例如: firmware.zip): ")
+				fmt.Scanln(&interactiveOutputFile)
+				if interactiveModel == "" || interactiveRegion == "" || interactiveFwVersion == "" || interactiveImeiSerial == "" || interactiveOutputFile == "" {
+					fmt.Println("错误: 型号、地区、固件版本、IMEI/序列号和输出文件是下载固件所必需的。")
+					continue
+				}
+				download(interactiveModel, interactiveRegion, interactiveFwVersion, interactiveImeiSerial, interactiveOutputFile)
+			case "C", "c":
+				var interactiveInputFile, interactiveOutputFile, interactiveFwVersion string
+				fmt.Print("请输入输入文件路径 (例如: firmware.zip.enc4): ")
+				fmt.Scanln(&interactiveInputFile)
+				fmt.Print("请输入输出文件路径 (例如: firmware.zip): ")
+				fmt.Scanln(&interactiveOutputFile)
+				fmt.Print("请输入固件版本 (例如: G998USQU4AUF5/G998UOYN4AUF5/G998USQU4AUF5/G998USQU4AUF5): ")
+				fmt.Scanln(&interactiveFwVersion)
+				// Model, Region, IMEI/Serial are already prompted and validated above
+				if interactiveInputFile == "" || interactiveOutputFile == "" || interactiveFwVersion == "" || interactiveModel == "" || interactiveRegion == "" || interactiveImeiSerial == "" {
+					fmt.Println("错误: 输入文件、输出文件、固件版本、型号、地区和IMEI/序列号是解码固件所必需的。")
+					continue
+				}
+				decrypt(interactiveInputFile, interactiveOutputFile, interactiveFwVersion, interactiveModel, interactiveRegion, interactiveImeiSerial)
+			case "!q":
+				fmt.Println("退出程序。")
+				return
+			default:
+				fmt.Println("无效的选择。请选择 A、B、C 或 !q。")
+			}
+		}
+	} else { // Command-line flags were provided
+		// The model, region, and imeiSerial are already prompted and validated above if they were missing.
+		// Now, proceed with the original command-line flag logic.
+		if *checkVersion {
+			if *model == "" || *region == "" { // This check is redundant now but kept for clarity
+				fmt.Println("Error: --model and --region are required for checking version.")
+				flag.Usage()
+				os.Exit(1)
+			}
+			checkLatestVersion(*model, *region)
+		} else if *downloadFirmware {
+			if *model == "" || *region == "" || *fwVersion == "" || *imeiSerial == "" || *outputFile == "" { // This check is partially redundant now
+				fmt.Println("Error: --model, --region, --fw, --imei, and --output are required for downloading firmware.")
+				flag.Usage()
+				os.Exit(1)
+			}
+			download(*model, *region, *fwVersion, *imeiSerial, *outputFile)
+		} else if *decryptFirmware {
+			if *inputFile == "" || *outputFile == "" || *fwVersion == "" || *model == "" || *region == "" || *imeiSerial == "" { // This check is partially redundant now
+				fmt.Println("Error: --input, --output, --fw, --model, --region, and --imei are required for decrypting firmware.")
+				flag.Usage()
+				os.Exit(1)
+			}
+			decrypt(*inputFile, *outputFile, *fwVersion, *model, *region, *imeiSerial)
+		} else {
+			fmt.Println("Please specify an action: --check-version, --download, or --decrypt.")
 			flag.Usage()
 			os.Exit(1)
 		}
-		checkLatestVersion(*model, *region)
-	} else if *downloadFirmware {
-		if *model == "" || *region == "" || *fwVersion == "" || *imeiSerial == "" || *outputFile == "" {
-			fmt.Println("Error: --model, --region, --fw, --imei, and --output are required for downloading firmware.")
-			flag.Usage()
-			os.Exit(1)
-		}
-		download(*model, *region, *fwVersion, *imeiSerial, *outputFile)
-	} else if *decryptFirmware {
-		if *inputFile == "" || *outputFile == "" || *fwVersion == "" || *model == "" || *region == "" || *imeiSerial == "" {
-			fmt.Println("Error: --input, --output, --fw, --model, --region, and --imei are required for decrypting firmware.")
-			flag.Usage()
-			os.Exit(1)
-		}
-		decrypt(*inputFile, *outputFile, *fwVersion, *model, *region, *imeiSerial)
-	} else {
-		fmt.Println("Please specify an action: --check-version, --download, or --decrypt.")
-		flag.Usage()
-		os.Exit(1)
 	}
 }
 
@@ -70,7 +166,7 @@ func checkLatestVersion(model, region string) {
 }
 
 func performDownloadGo(binaryInfo *request.BinaryFileInfo, client *fusclient.FusClient, outputPath string) {
-	outputFile, err := os.Create(outputPath)
+	outputFile, err := os.Create(outputPath + "/" + binaryInfo.FileName)
 	if err != nil {
 		fmt.Printf("Error creating output file: %v\n", err)
 		return
