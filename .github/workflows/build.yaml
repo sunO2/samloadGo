@@ -67,6 +67,8 @@ jobs:
         id: get_tag
         run: |
           echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      - name: List dist contents
+        run: ls -l ./dist
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -77,4 +79,4 @@ jobs:
           prerelease: false
           files: ./dist/samloadGo-*
         env:
-          GITHUB_TOKEN: ${{ secrets.GETHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
