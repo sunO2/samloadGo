@@ -63,7 +63,7 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: release-binaries-${{ matrix.os }}-${{ matrix.arch }}
+          name: release-binaries
           path: ./dist
 
       - name: Get tag
