@@ -69,7 +69,7 @@ jobs:
               export CXX=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi${ANDROID_API}-clang++
             fi
           fi
-
+          go mod tidy
           go build -o $output_name main.go
 
       - name: Upload build artifact
