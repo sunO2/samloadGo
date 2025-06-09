@@ -12,7 +12,7 @@ jobs:
 
     strategy:
       matrix:
-        os: [linux, windows, darwin]
+        os: [linux, windows, darwin, android]
         arch: [amd64, arm64, arm, 386]
         exclude:
           - os: darwin
@@ -21,12 +21,18 @@ jobs:
             arch: 386
           - os: windows
             arch: arm
+          - os: android
+            arch: 386
+          - os: android
+            arch: amd64
         include:
           - os: windows
             ext: .exe
           - os: linux
             ext: ""
           - os: darwin
+            ext: ""
+          - os: android
             ext: ""
     env:
       CGO_ENABLED: 0
@@ -40,11 +46,30 @@ jobs:
         with:
           go-version: '1.21'
 
+      - name: Setup Android NDK
+        if: ${{ matrix.os == 'android' }}
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r21e # 使用一个稳定的NDK版本
+
       - name: Build
         run: |
           export GOOS=${{ matrix.os }}
           export GOARCH=${{ matrix.arch }}
           output_name=samloadGo-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}
+
+          if [ "${{ matrix.os }}" = "android" ]; then
+            export CGO_ENABLED=1
+            export ANDROID_API=21 # 或者其他合适的API级别
+            if [ "${{ matrix.arch }}" = "arm64" ]; then
+              export CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${ANDROID_API}-clang
+              export CXX=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${ANDROID_API}-clang++
+            elif [ "${{ matrix.arch }}" = "arm" ]; then
+              export CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi${ANDROID_API}-clang
+              export CXX=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi${ANDROID_API}-clang++
+            fi
+          fi
+
           go build -o $output_name main.go
 
       - name: Upload build artifact
