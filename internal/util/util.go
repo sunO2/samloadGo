@@ -17,8 +17,8 @@ var GlobalHttpClient = &http.Client{
 // XMLNode represents a generic XML element for parsing.
 type XMLNode struct {
 	XMLName  xml.Name
-	Attr     []xml.Attr `xml:",attr"` // Add this line to parse attributes
-	Content  []byte     `xml:",innerxml"`
+	Attr     []xml.Attr `xml:",any,attr"` // Add this line to parse attributes
+	Content  []byte     `xml:",chardata"`
 	Children []XMLNode  `xml:",any"`
 }
 
