@@ -135,6 +135,8 @@ type Result struct {
 	Data    interface{} `json:"data,omitempty"`
 }
 
+var downloadManagerMap = make(map[string]*cmd.DownloadTask)
+
 //export NewDartCallbackHandle
 func NewDartCallbackHandle(sendPortID C.longlong, postCObjectPtr unsafe.Pointer) *C.Dart_Callback_Handle {
 	handle := (*C.Dart_Callback_Handle)(C.malloc(C.sizeof_Dart_Callback_Handle))
@@ -197,18 +199,25 @@ func DownloadFirmware(modelC *C.char, regionC *C.char, fwVersionC *C.char, imeiS
 		jsonRes, _ := json.Marshal(res)
 		return C.CString(string(jsonRes))
 	}
-	fmt.Printf("Downloading firmware %s for Model: %s, Region: %s to %s\n", fwVersion, model, region, outputPath)
-	rogressCallback := func(current, max, bps int64) {
-		C.post_dart_message_from_c(callbackHandle, 0, C.long(current), C.long(max), C.long(bps))
-	}
-	err, binaryInfo := cmd.DownloadFirmware(model, region, fwVersion, imeiSerial, outputPath, rogressCallback)
-	if err != nil {
-		res := Result{Success: false, Message: fmt.Sprintf("Error during download: %v", err)}
-		jsonRes, _ := json.Marshal(res)
-		return C.CString(string(jsonRes))
+
+	/// 相同id不进入
+	taskId := model + region + fwVersion + imeiSerial + outputPath
+	if task, exists := downloadManagerMap[taskId]; exists {
+		if task.Status >= cmd.StatusInitializing {
+			return C.CString(model + region + fwVersion + imeiSerial + outputPath)
+		}
 	}
 
-	res := Result{Success: true, Message: "固件下载成功", Data: map[string]string{"filePath": outputPath + "/" + binaryInfo.FileName}}
+	fmt.Printf("Downloading firmware %s for Model: %s, Region: %s to %s\n", fwVersion, model, region, outputPath)
+	progressCallback := func(current, max, bps int64) {
+		C.post_dart_message_from_c(callbackHandle, 0, C.long(current), C.long(max), C.long(bps))
+	}
+
+	task := cmd.NewDownloadTask(model, region, fwVersion, imeiSerial, outputPath, progressCallback)
+	downloadManagerMap[taskId] = task
+	task.Start()
+
+	res := Result{Success: true, Message: "固件下载成功", Data: map[string]string{"filePath": outputPath + "/" + task.FileName}}
 	jsonRes, _ := json.Marshal(res)
 	return C.CString(string(jsonRes))
 }

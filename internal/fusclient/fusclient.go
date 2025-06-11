@@ -2,6 +2,7 @@ package fusclient
 
 import (
 	"bytes"
+	"context" // Import context package
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -162,6 +163,7 @@ func (f *FusClient) MakeReq(requestType RequestType, data string, includeNonce b
 
 // DownloadFile downloads a file from Samsung's server.
 func (f *FusClient) DownloadFile(
+	ctx context.Context, // Add context parameter
 	fileName string,
 	start int64,
 	size int64,
@@ -172,7 +174,7 @@ func (f *FusClient) DownloadFile(
 	authV := f.getAuthV(true)
 	url := f.getDownloadUrl(fileName)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil) // Use NewRequestWithContext
 	if err != nil {
 		return "", err
 	}
@@ -195,12 +197,23 @@ func (f *FusClient) DownloadFile(
 		size,
 		progressCallback,
 		func() (int64, error) {
-			n, err := io.CopyN(output, resp.Body, util.DEFAULT_CHUNK_SIZE)
-			return n, err
+			// Check context cancellation during copy operation
+			select {
+			case <-ctx.Done():
+				return 0, ctx.Err() // Return context error if cancelled
+			default:
+				n, err := io.CopyN(output, resp.Body, util.DEFAULT_CHUNK_SIZE)
+				return n, err
+			}
 		},
 		outputSize,
 		func() bool {
-			return true // Continue until io.CopyN returns EOF or error
+			select {
+			case <-ctx.Done():
+				return false // Stop if context is cancelled
+			default:
+				return true // Continue until io.CopyN returns EOF or error
+			}
 		},
 		false,
 	)
