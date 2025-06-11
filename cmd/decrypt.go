@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -22,7 +23,10 @@ var DecryptCmd = &cobra.Command{
 			fmt.Println("错误: --input, --output, --fw, --model, --region, 和 --imei 是解码固件所必需的。")
 			os.Exit(1)
 		}
-		decryptFirmware(inputFile, outputFile, fwVersion, model, region, imeiSerial)
+		progressCallback := func(current, max, bps int64) {
+			fmt.Printf("\rDecrypting: %d/%d bytes (%.2f%%) @ %d B/s", current, max, float64(current)/float64(max)*100, bps)
+		}
+		DecryptFirmware(inputFile, outputFile, fwVersion, model, region, imeiSerial, progressCallback)
 	},
 }
 
@@ -40,7 +44,7 @@ func init() {
 	// decryptCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
-func decryptFirmware(inputPath, outputPath, fwVersion, model, region, imeiSerial string) {
+func DecryptFirmware(inputPath, outputPath, fwVersion, model, region, imeiSerial string, progressCallback ProgressCallback) error {
 	fmt.Printf("Decrypting %s to %s\n", inputPath, outputPath)
 
 	client := fusclient.NewFusClient()
@@ -61,7 +65,7 @@ func decryptFirmware(inputPath, outputPath, fwVersion, model, region, imeiSerial
 	binaryInfo := request.RetrieveBinaryFileInfo(fwVersion, model, region, imeiSerial, client, onFinish, onVersionException, shouldReportError)
 	if binaryInfo == nil {
 		fmt.Println("Failed to retrieve binary file information for decryption key.")
-		return
+		return errors.New("failed to retrieve binary file information for decryption key")
 	}
 
 	var decryptionKey []byte
@@ -85,32 +89,28 @@ func decryptFirmware(inputPath, outputPath, fwVersion, model, region, imeiSerial
 	inputFile, err := os.Open(inputPath)
 	if err != nil {
 		fmt.Printf("Error opening input file: %v\n", err)
-		return
+		return fmt.Errorf("error opening input file: %v", err)
 	}
 	defer inputFile.Close()
 
 	outputFile, err := os.Create(outputPath)
 	if err != nil {
 		fmt.Printf("Error creating output file: %v\n", err)
-		return
+		return fmt.Errorf("error creating output file: %v", err)
 	}
 	defer outputFile.Close()
 
 	inputStat, err := inputFile.Stat()
 	if err != nil {
 		fmt.Printf("Error getting input file info: %v\n", err)
-		return
+		return fmt.Errorf("error getting input file info: %v", err)
 	}
 	fileSize := inputStat.Size()
-
-	progressCallback := func(current, max, bps int64) {
-		fmt.Printf("\rDecrypting: %d/%d bytes (%.2f%%) @ %d B/s", current, max, float64(current)/float64(max)*100, bps)
-	}
-
 	err = cryptutils.DecryptProgress(inputFile, outputFile, decryptionKey, fileSize, util.DEFAULT_CHUNK_SIZE, progressCallback)
 	if err != nil {
 		fmt.Printf("\nError decrypting file: %v\n", err)
-		return
+		return fmt.Errorf("error decrypting file: %v", err)
 	}
 	fmt.Println("\nDecryption complete.")
+	return nil
 }

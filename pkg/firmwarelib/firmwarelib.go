@@ -122,14 +122,9 @@ import "C"
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"unsafe"
 
 	"samsung-firmware-tool/cmd"
-	"samsung-firmware-tool/internal/cryptutils"
-	"samsung-firmware-tool/internal/fusclient"
-	"samsung-firmware-tool/internal/request"
-	"samsung-firmware-tool/internal/util"
 	"samsung-firmware-tool/internal/versionfetch"
 )
 
@@ -235,73 +230,10 @@ func DecryptFirmware(inputPathC *C.char, outputPathC *C.char, fwVersionC *C.char
 
 	fmt.Printf("Decrypting %s to %s\n", inputPath, outputPath)
 
-	client := fusclient.NewFusClient()
-
-	onFinish := func(msg string) {
-		fmt.Println(msg)
-	}
-	onVersionException := func(err error, info *request.BinaryFileInfo) {
-		fmt.Printf("Version exception: %v\n", err)
-		if info != nil {
-			fmt.Printf("Binary File Info: %+v\n", *info)
-		}
-	}
-	shouldReportError := func(err error) bool {
-		return true // For now, always report
-	}
-
-	binaryInfo := request.RetrieveBinaryFileInfo(fwVersion, model, region, imeiSerial, client, onFinish, onVersionException, shouldReportError)
-	if binaryInfo == nil {
-		res := Result{Success: false, Message: "Failed to retrieve binary file information for decryption key."}
-		jsonRes, _ := json.Marshal(res)
-		return C.CString(string(jsonRes))
-	}
-
-	var decryptionKey []byte
-	var decryptionKeyStr string
-
-	if binaryInfo.V4Key != nil {
-		decryptionKey = binaryInfo.V4Key
-		decryptionKeyStr = binaryInfo.V4KeyStr
-		fmt.Println("Using V4 decryption key.")
-	} else {
-		decryptionKey, decryptionKeyStr = cryptutils.GetV2Key(fwVersion, model, region)
-		fmt.Println("Using V2 decryption key.")
-	}
-
-	fmt.Printf("Decryption Key (MD5): %x\n", decryptionKey)
-	fmt.Printf("Decryption Key (String): %s\n", decryptionKeyStr)
-
-	inputFile, err := os.Open(inputPath)
-	if err != nil {
-		res := Result{Success: false, Message: fmt.Sprintf("Error opening input file: %v", err)}
-		jsonRes, _ := json.Marshal(res)
-		return C.CString(string(jsonRes))
-	}
-	defer inputFile.Close()
-
-	outputFile, err := os.Create(outputPath)
-	if err != nil {
-		res := Result{Success: false, Message: fmt.Sprintf("Error creating output file: %v", err)}
-		jsonRes, _ := json.Marshal(res)
-		return C.CString(string(jsonRes))
-	}
-	defer outputFile.Close()
-
-	inputStat, err := inputFile.Stat()
-	if err != nil {
-		res := Result{Success: false, Message: fmt.Sprintf("Error getting input file info: %v", err)}
-		jsonRes, _ := json.Marshal(res)
-		return C.CString(string(jsonRes))
-	}
-	fileSize := inputStat.Size()
-
 	progressCallback := func(current, max, bps int64) {
-		// Call the C function to post messages to Dart
-		C.post_dart_message_from_c(callbackHandle, 0, C.long(current), C.long(max), C.long(bps))
-	}
 
-	err = cryptutils.DecryptProgress(inputFile, outputFile, decryptionKey, fileSize, util.DEFAULT_CHUNK_SIZE, progressCallback)
+	}
+	err := cmd.DecryptFirmware(inputPath, outputPath, fwVersion, model, region, imeiSerial, progressCallback)
 	if err != nil {
 		res := Result{Success: false, Message: fmt.Sprintf("\nError decrypting file: %v", err)}
 		jsonRes, _ := json.Marshal(res)
