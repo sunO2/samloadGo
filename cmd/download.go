@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -20,7 +21,13 @@ var DownloadCmd = &cobra.Command{
 			fmt.Println("错误: --model, --region, --fw, --imei, 和 --output 是下载固件所必需的。")
 			os.Exit(1)
 		}
-		downloadFirmware(model, region, fwVersion, imeiSerial, outputFile)
+		// In a real application, you would create and manage the Dart_Callback_Handle here.
+		// For this command-line tool, we'll just call the internal Go function.
+		// If this command were to be exposed to Dart, you would pass the callbackHandle.
+		var progressCall = func(current, max, bps int64) {
+			fmt.Printf("\rDownloading: %d/%d bytes (%.2f%%) @ %d B/s", current, max, float64(current)/float64(max)*100, bps)
+		}
+		DownloadFirmware(model, region, fwVersion, imeiSerial, outputFile, progressCall)
 	},
 }
 
@@ -38,11 +45,13 @@ func init() {
 	// downloadCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
-func performDownloadGo(binaryInfo *request.BinaryFileInfo, client *fusclient.FusClient, outputPath string) {
+type ProgressCallback = func(current, max, bps int64)
+
+func performDownloadGo(binaryInfo *request.BinaryFileInfo, client *fusclient.FusClient, outputPath string, progressCall ProgressCallback) error {
 	outputFile, err := os.Create(outputPath + "/" + binaryInfo.FileName)
 	if err != nil {
 		fmt.Printf("Error creating output file: %v\n", err)
-		return
+		return err
 	}
 	defer outputFile.Close()
 
@@ -50,28 +59,25 @@ func performDownloadGo(binaryInfo *request.BinaryFileInfo, client *fusclient.Fus
 	nonce, err := client.GetNonce()
 	if err != nil {
 		fmt.Printf("Error getting nonce for BINARY_INIT: %v\n", err)
-		return
+		return err
 	}
 	binaryInitRequest := request.CreateBinaryInit(binaryInfo.FileName, nonce)
 	_, err = client.MakeReq(fusclient.BinaryInit, binaryInitRequest, true)
 	if err != nil {
 		fmt.Printf("Error performing BINARY_INIT request: %v\n", err)
-		return
+		return err
 	}
 
-	progressCallback := func(current, max, bps int64) {
-		fmt.Printf("\rDownloading: %d/%d bytes (%.2f%%) @ %d B/s", current, max, float64(current)/float64(max)*100, bps)
-	}
-
-	md5Sum, err := client.DownloadFile(binaryInfo.Path+binaryInfo.FileName, 0, binaryInfo.Size, outputFile, 0, progressCallback)
+	md5Sum, err := client.DownloadFile(binaryInfo.Path+binaryInfo.FileName, 0, binaryInfo.Size, outputFile, 0, progressCall)
 	if err != nil {
 		fmt.Printf("\nError downloading file: %v\n", err)
-		return
+		return err
 	}
 	fmt.Printf("\nDownload complete. MD5: %s\n", md5Sum)
+	return nil
 }
 
-func downloadFirmware(model, region, fwVersion, imeiSerial, outputPath string) {
+func DownloadFirmware(model, region, fwVersion, imeiSerial, outputPath string, progressCall ProgressCallback) (error, *request.BinaryFileInfo) {
 	fmt.Printf("Downloading firmware %s for Model: %s, Region: %s to %s\n", fwVersion, model, region, outputPath)
 
 	client := fusclient.NewFusClient()
@@ -83,7 +89,8 @@ func downloadFirmware(model, region, fwVersion, imeiSerial, outputPath string) {
 		fmt.Printf("Version exception: %v\n", err)
 		if info != nil {
 			fmt.Println("Attempting to proceed with download despite version exception...")
-			performDownloadGo(info, client, outputPath)
+			// In a real application, you would pass the callbackHandle here.
+			performDownloadGo(info, client, outputPath, progressCall)
 		}
 	}
 	shouldReportError := func(err error) bool {
@@ -93,8 +100,10 @@ func downloadFirmware(model, region, fwVersion, imeiSerial, outputPath string) {
 	binaryInfo := request.RetrieveBinaryFileInfo(fwVersion, model, region, imeiSerial, client, onFinish, onVersionException, shouldReportError)
 	if binaryInfo == nil {
 		fmt.Println("Failed to retrieve binary file information.")
-		return
+		return errors.New("failed to retrieve binary file information"), nil
 	}
 
-	performDownloadGo(binaryInfo, client, outputPath)
+	// In a real application, you would pass the callbackHandle here.
+	err := performDownloadGo(binaryInfo, client, outputPath, progressCall)
+	return err, binaryInfo
 }

@@ -48,27 +48,17 @@ typedef struct _Dart_CObject {
 
 typedef bool (*Dart_PostCObject_Type)(Dart_Port port, Dart_CObject* message);
 
-// Global variable to store the Dart_PostCObject function pointer
-static Dart_PostCObject_Type Dart_PostCObject_Fn = NULL;
+// A C struct to hold the Dart callback information
+typedef struct {
+    Dart_Port send_port_id;
+    Dart_PostCObject_Type post_c_object_fn;
+} Dart_Callback_Handle;
 
-// Global variable to store the Dart SendPort ID
-static Dart_Port global_dart_send_port_id = 0;
-
-// A C function to set the Dart_PostCObject function pointer
-static void set_dart_post_c_object(Dart_PostCObject_Type func) {
-    Dart_PostCObject_Fn = func;
-}
-
-// A C function to set the global Dart SendPort ID
-static void set_global_dart_send_port_id(Dart_Port port_id) {
-    global_dart_send_port_id = port_id;
-}
-
-// A C function to post a message to Dart
+// A C function to post a message to Dart using the provided handle
 // type: 0 for progress update
-static void post_dart_message_from_c(int type, long current, long max, long bps) {
-    if (Dart_PostCObject_Fn == NULL || global_dart_send_port_id == 0) {
-        return; // NativeApi not initialized or SendPort not set
+static void post_dart_message_from_c(Dart_Callback_Handle* handle, int type, long current, long max, long bps) {
+    if (handle == NULL || handle->post_c_object_fn == NULL || handle->send_port_id == 0) {
+        return; // Callback handle not initialized or SendPort not set
     }
 
     // Allocate Dart_CObject for the array and its elements
@@ -106,7 +96,7 @@ static void post_dart_message_from_c(int type, long current, long max, long bps)
     bps_obj->value.as_int64 = bps;
     message->value.as_array.values[3] = bps_obj;
 
-    Dart_PostCObject_Fn(global_dart_send_port_id, message);
+    handle->post_c_object_fn(handle->send_port_id, message);
 
 cleanup_array_values:
     // Free the allocated memory for the array values and the message itself
@@ -135,6 +125,7 @@ import (
 	"os"
 	"unsafe"
 
+	"samsung-firmware-tool/cmd"
 	"samsung-firmware-tool/internal/cryptutils"
 	"samsung-firmware-tool/internal/fusclient"
 	"samsung-firmware-tool/internal/request"
@@ -149,16 +140,24 @@ type Result struct {
 	Data    interface{} `json:"data,omitempty"`
 }
 
-//export SetDartPostCObject
-func SetDartPostCObject(ptr unsafe.Pointer) {
-	C.set_dart_post_c_object((C.Dart_PostCObject_Type)(ptr))
-	fmt.Printf("Dart_PostCObject function pointer set.\n")
+//export NewDartCallbackHandle
+func NewDartCallbackHandle(sendPortID C.longlong, postCObjectPtr unsafe.Pointer) *C.Dart_Callback_Handle {
+	handle := (*C.Dart_Callback_Handle)(C.malloc(C.sizeof_Dart_Callback_Handle))
+	if handle == nil {
+		return nil // Handle allocation failure
+	}
+	handle.send_port_id = C.Dart_Port(sendPortID)
+	handle.post_c_object_fn = (C.Dart_PostCObject_Type)(postCObjectPtr)
+	fmt.Printf("New Dart_Callback_Handle created with SendPortID: %d\n", sendPortID)
+	return handle
 }
 
-//export SetDartSendPortID
-func SetDartSendPortID(portID C.longlong) {
-	C.set_global_dart_send_port_id(C.Dart_Port(portID))
-	fmt.Printf("Global Dart SendPort ID set to: %d\n", portID)
+//export FreeDartCallbackHandle
+func FreeDartCallbackHandle(handle *C.Dart_Callback_Handle) {
+	if handle != nil {
+		C.free(unsafe.Pointer(handle))
+		fmt.Println("Dart_Callback_Handle freed.")
+	}
 }
 
 //export CheckFirmwareVersion
@@ -191,7 +190,7 @@ func CheckFirmwareVersion(modelC *C.char, regionC *C.char) *C.char {
 }
 
 //export DownloadFirmware
-func DownloadFirmware(modelC *C.char, regionC *C.char, fwVersionC *C.char, imeiSerialC *C.char, outputPathC *C.char) *C.char {
+func DownloadFirmware(modelC *C.char, regionC *C.char, fwVersionC *C.char, imeiSerialC *C.char, outputPathC *C.char, callbackHandle *C.Dart_Callback_Handle) *C.char {
 	model := C.GoString(modelC)
 	region := C.GoString(regionC)
 	fwVersion := C.GoString(fwVersionC)
@@ -203,33 +202,11 @@ func DownloadFirmware(modelC *C.char, regionC *C.char, fwVersionC *C.char, imeiS
 		jsonRes, _ := json.Marshal(res)
 		return C.CString(string(jsonRes))
 	}
-
 	fmt.Printf("Downloading firmware %s for Model: %s, Region: %s to %s\n", fwVersion, model, region, outputPath)
-
-	client := fusclient.NewFusClient()
-
-	onFinish := func(msg string) {
-		fmt.Println(msg)
+	rogressCallback := func(current, max, bps int64) {
+		C.post_dart_message_from_c(callbackHandle, 0, C.long(current), C.long(max), C.long(bps))
 	}
-	onVersionException := func(err error, info *request.BinaryFileInfo) {
-		fmt.Printf("Version exception: %v\n", err)
-		if info != nil {
-			fmt.Println("Attempting to proceed with download despite version exception...")
-			performDownloadGo(info, client, outputPath) // No sendPortID here
-		}
-	}
-	shouldReportError := func(err error) bool {
-		return true // For now, always report
-	}
-
-	binaryInfo := request.RetrieveBinaryFileInfo(fwVersion, model, region, imeiSerial, client, onFinish, onVersionException, shouldReportError)
-	if binaryInfo == nil {
-		res := Result{Success: false, Message: "Failed to retrieve binary file information."}
-		jsonRes, _ := json.Marshal(res)
-		return C.CString(string(jsonRes))
-	}
-
-	err := performDownloadGo(binaryInfo, client, outputPath) // No sendPortID here
+	err, binaryInfo := cmd.DownloadFirmware(model, region, fwVersion, imeiSerial, outputPath, rogressCallback)
 	if err != nil {
 		res := Result{Success: false, Message: fmt.Sprintf("Error during download: %v", err)}
 		jsonRes, _ := json.Marshal(res)
@@ -241,39 +218,8 @@ func DownloadFirmware(modelC *C.char, regionC *C.char, fwVersionC *C.char, imeiS
 	return C.CString(string(jsonRes))
 }
 
-func performDownloadGo(binaryInfo *request.BinaryFileInfo, client *fusclient.FusClient, outputPath string) error {
-	outputFile, err := os.Create(outputPath + "/" + binaryInfo.FileName)
-	if err != nil {
-		return fmt.Errorf("Error creating output file: %v", err)
-	}
-	defer outputFile.Close()
-
-	// Perform BINARY_INIT request as in Kotlin version
-	nonce, err := client.GetNonce()
-	if err != nil {
-		return fmt.Errorf("Error getting nonce for BINARY_INIT: %v", err)
-	}
-	binaryInitRequest := request.CreateBinaryInit(binaryInfo.FileName, nonce)
-	_, err = client.MakeReq(fusclient.BinaryInit, binaryInitRequest, true)
-	if err != nil {
-		return fmt.Errorf("Error performing BINARY_INIT request: %v", err)
-	}
-
-	progressCallback := func(current, max, bps int64) {
-		// Call the C function to post messages to Dart
-		C.post_dart_message_from_c(0, C.long(current), C.long(max), C.long(bps))
-	}
-
-	md5Sum, err := client.DownloadFile(binaryInfo.Path+binaryInfo.FileName, 0, binaryInfo.Size, outputFile, 0, progressCallback)
-	if err != nil {
-		return fmt.Errorf("\nError downloading file: %v", err)
-	}
-	fmt.Printf("\nDownload complete. MD5: %s\n", md5Sum)
-	return nil
-}
-
 //export DecryptFirmware
-func DecryptFirmware(inputPathC *C.char, outputPathC *C.char, fwVersionC *C.char, modelC *C.char, regionC *C.char, imeiSerialC *C.char) *C.char {
+func DecryptFirmware(inputPathC *C.char, outputPathC *C.char, fwVersionC *C.char, modelC *C.char, regionC *C.char, imeiSerialC *C.char, callbackHandle *C.Dart_Callback_Handle) *C.char {
 	inputPath := C.GoString(inputPathC)
 	outputPath := C.GoString(outputPathC)
 	fwVersion := C.GoString(fwVersionC)
@@ -352,7 +298,7 @@ func DecryptFirmware(inputPathC *C.char, outputPathC *C.char, fwVersionC *C.char
 
 	progressCallback := func(current, max, bps int64) {
 		// Call the C function to post messages to Dart
-		C.post_dart_message_from_c(0, C.long(current), C.long(max), C.long(bps))
+		C.post_dart_message_from_c(callbackHandle, 0, C.long(current), C.long(max), C.long(bps))
 	}
 
 	err = cryptutils.DecryptProgress(inputFile, outputFile, decryptionKey, fileSize, util.DEFAULT_CHUNK_SIZE, progressCallback)
