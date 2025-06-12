@@ -203,8 +203,10 @@ func DownloadFirmware(modelC *C.char, regionC *C.char, fwVersionC *C.char, imeiS
 	/// 相同id不进入
 	taskId := model + region + fwVersion + imeiSerial + outputPath
 	if task, exists := downloadManagerMap[taskId]; exists {
-		if task.Status >= cmd.StatusInitializing {
-			return C.CString(model + region + fwVersion + imeiSerial + outputPath)
+		if task.Status >= cmd.StatusInitializing && task.Status < cmd.StatusFailed {
+			res := Result{Success: false, Message: "下载中..."}
+			jsonRes, _ := json.Marshal(res)
+			return C.CString(string(jsonRes))
 		}
 	}
 
@@ -215,7 +217,12 @@ func DownloadFirmware(modelC *C.char, regionC *C.char, fwVersionC *C.char, imeiS
 
 	task := cmd.NewDownloadTask(model, region, fwVersion, imeiSerial, outputPath, progressCallback)
 	downloadManagerMap[taskId] = task
-	task.Start()
+	err := task.Start()
+	if nil != err {
+		res := Result{Success: false, Message: err.Error()}
+		jsonRes, _ := json.Marshal(res)
+		return C.CString(string(jsonRes))
+	}
 
 	res := Result{Success: true, Message: "固件下载成功", Data: map[string]string{"filePath": outputPath + "/" + task.FileName}}
 	jsonRes, _ := json.Marshal(res)
