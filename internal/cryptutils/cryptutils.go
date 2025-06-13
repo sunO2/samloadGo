@@ -157,7 +157,16 @@ func DecryptProgress(
 		decryptedBlock := make([]byte, n)
 
 		for i := 0; i < n; i += block.BlockSize() {
-			block.Decrypt(decryptedBlock[i:], encryptedBlock[i:])
+			dstBlobck := decryptedBlock[i:]
+			srcBlobck := encryptedBlock[i:]
+
+			if len(srcBlobck) < aes.BlockSize {
+				return fmt.Errorf("crypto/aes: output not full block")
+			}
+			if len(dstBlobck) < aes.BlockSize {
+				return fmt.Errorf("crypto/aes: output not full block")
+			}
+			block.Decrypt(dstBlobck, srcBlobck)
 		}
 
 		_, err = outf.Write(decryptedBlock)

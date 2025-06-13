@@ -247,7 +247,7 @@ func DecryptFirmware(inputPathC *C.char, outputPathC *C.char, fwVersionC *C.char
 	fmt.Printf("Decrypting %s to %s\n", inputPath, outputPath)
 
 	progressCallback := func(current, max, bps int64) {
-
+		C.post_dart_message_from_c(callbackHandle, 0, C.long(current), C.long(max), C.long(bps))
 	}
 	err := cmd.DecryptFirmware(inputPath, outputPath, fwVersion, model, region, imeiSerial, progressCallback)
 	if err != nil {
